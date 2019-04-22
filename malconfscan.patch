@@ -1,0 +1,177 @@
+diff --git a/cuckoo/common/config.py b/cuckoo/common/config.py
+index 6d4384f1..1a607026 100644
+--- a/cuckoo/common/config.py
++++ b/cuckoo/common/config.py
+@@ -411,6 +411,10 @@ class Config(object):
+                 "enabled": Boolean(True),
+                 "filter": Boolean(False),
+             },
++            "malconfscan": {
++                "enabled": Boolean(True),
++                "filter": Boolean(False),
++            },
+             "callbacks": {
+                 "enabled": Boolean(True),
+                 "filter": Boolean(False),
+diff --git a/cuckoo/compat/config.py b/cuckoo/compat/config.py
+index cc18e93f..84dfc396 100644
+--- a/cuckoo/compat/config.py
++++ b/cuckoo/compat/config.py
+@@ -152,6 +152,10 @@ def _060_100(c):
+             "enabled": True,
+             "filter": False,
+         },
++        "malconfscan": {
++            "enabled": True,
++            "filter": False,
++        },
+         "callbacks": {
+             "enabled": True,
+             "filter": False,
+diff --git a/cuckoo/private/cwd/conf/memory.conf b/cuckoo/private/cwd/conf/memory.conf
+index 36011d99..e5beb41b 100644
+--- a/cuckoo/private/cwd/conf/memory.conf
++++ b/cuckoo/private/cwd/conf/memory.conf
+@@ -37,6 +37,12 @@ filter = {{ memory.pslist.filter }}
+ enabled = {{ memory.psxview.enabled }}
+ filter = {{ memory.psxview.filter }}
+ 
++# Search known malware's config from memory dump.
++# https://github.com/JPCERTCC/MalConfScan/
++[malconfscan]
++enabled = {{ memory.malconfscan.enabled }}
++filter = {{ memory.malconfscan.filter }}
++
+ # Show callbacks
+ # http://code.google.com/p/volatility/wiki/CommandReferenceMal23#callbacks
+ [callbacks]
+diff --git a/cuckoo/processing/memory.py b/cuckoo/processing/memory.py
+index 26873ae2..eeb32c0f 100644
+--- a/cuckoo/processing/memory.py
++++ b/cuckoo/processing/memory.py
+@@ -31,6 +31,7 @@ try:
+     import volatility.exceptions as exc
+     import volatility.plugins.filescan as filescan
+     import volatility.protos as protos
++    import volatility.plugins.malware.malconfscan
+ 
+     HAVE_VOLATILITY = True
+ 
+@@ -205,6 +206,38 @@ class VolatilityAPI(object):
+ 
+         return dict(config={}, data=results)
+ 
++    def malconfscan(self):
++        """ Volatility malconfscan plugin
++        https://github.com/JPCERTCC/MalConfScan
++        @see volatility/plugins/malware/malconfscan.py
++        """
++        results = []
++        malconf = []
++        command = self.plugins["malconfscan"](self.config)
++
++        for task, vad_base_addr, end, hit, memory_model, config_data in command.calculate():
++            # strip null bytes and convert dict data to list data.
++            for i in range(len(config_data)):
++                conf = []
++                for field, value in config_data[i].iteritems():
++                    value = str(value).strip(chr(0))
++                    config_data[i][field]= value
++                    conf.append({
++                        field: value
++                        })
++                malconf.append(conf)
++
++            results.append({
++                "process_name": str(task.ImageFileName),
++                "process_id": str(task.UniqueProcessId),
++                "malware_name": str(hit),
++                "vad_base_addr": '0x' + str(vad_base_addr).zfill(8),
++                "size": '0x' + str(end - vad_base_addr + 1).zfill(8),
++                "malconf":malconf,
++            })
++
++        return dict(config={}, data=results)
++
+     def callbacks(self):
+         """Volatility callbacks plugin.
+         @see volatility/plugins/malware/callbacks.py
+@@ -965,6 +998,7 @@ class VolatilityManager(object):
+     PLUGINS = [
+         "pslist",
+         "psxview",
++        "malconfscan",
+         "callbacks",
+         ["idt", "x86"],
+         "ssdt",
+diff --git a/cuckoo/web/templates/analysis/pages/memory/_malconfscan.html b/cuckoo/web/templates/analysis/pages/memory/_malconfscan.html
+new file mode 100644
+index 00000000..a0fc5457
+--- /dev/null
++++ b/cuckoo/web/templates/analysis/pages/memory/_malconfscan.html
+@@ -0,0 +1,45 @@
++{% for row in report.analysis.memory.malconfscan.data %}
++<table class="cuckoo-table__fullscreen">
++    <thead>
++        <tr>
++            <th>Process Name</th>
++            <th>PID</th>
++            <th>Malware Name</th>
++            <th>Base Address(VAD)</th>
++            <th>Size</th>
++        </tr>
++    </thead>
++    <tbody>
++        <tr>
++            <td class="{{ row.class_ }}">{{row.process_name}}</td>
++            <td class="{{ row.class_ }}">{{row.process_id}}</td>
++            <td class="{{ row.class_ }}">{{row.malware_name}}</td>
++            <td class="{{ row.class_ }}">{{row.vad_base_addr}}</td>
++            <td class="{{ row.class_ }}">{{row.size}}</td>
++        </tr>
++    </tbody>
++</table><br>
++
++
++{% for malconf_list in row.malconf %}
++<table class="cuckoo-table__fullscreen">
++    <thead>
++        <tr>
++            <th>Config Field</th>
++            <th>Config Value</th>
++        </tr>
++    </thead>
++    <tbody>
++        {% for conf in malconf_list %}
++        {% for field,value in conf.items %}
++        <tr>
++            <td class="{{ row.class_ }}">{{field}}</td>
++            <td class="{{ row.class_ }}">{{value}}</td>
++        </tr>
++        {% endfor %}
++        {% endfor %}
++    </tbody>
++</table>
++{% endfor %}
++{% endfor %}
++
+diff --git a/cuckoo/web/templates/analysis/pages/memory/index.html b/cuckoo/web/templates/analysis/pages/memory/index.html
+index 61d9f917..7ad1f1c7 100644
+--- a/cuckoo/web/templates/analysis/pages/memory/index.html
++++ b/cuckoo/web/templates/analysis/pages/memory/index.html
+@@ -38,6 +38,7 @@
+                         <a href="memory-idt" class="no-badge">IDT</a>
+                         <a href="memory-gdt" class="no-badge">GDT</a>
+                         <a href="memory-sockets" class="no-badge">Sockets</a>
++                        <a href="memory-malconfscan" class="no-badge">MalConfScan</a>
+                     </div>
+ 
+                 </div>
+@@ -64,6 +65,7 @@
+                             {% include "analysis/pages/memory/_netscan.html" %}
+                         {% endif %}
+                     </div>
++                    <div id="memory-malconfscan">{% include "analysis/pages/memory/_malconfscan.html" %}</div>
+                 </div>
+ 
+             </div>
