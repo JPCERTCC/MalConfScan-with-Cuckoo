@@ -2,7 +2,7 @@
 
 ## Introduction
 [__MalConfScan__](https://github.com/JPCERTCC/MalConfScan) integration for [__Cuckoo Sandbox__](https://github.com/cuckoosandbox/cuckoo).<br>
-This plugin will let you integrate MalConfScan into Cuckoo Sandbox with the patch file. The plugin would add the function to extract known malware's configuration data from memory dump and, add the MalConfScan report into Cuckoo Sandbox.<br><br>
+This plugin lets you integrate MalConfScan into Cuckoo Sandbox with the patch file. The plugin would add the function to extract known malware's configuration data from memory dump and, add the MalConfScan report into Cuckoo Sandbox.<br><br>
 
 ### Sample report
 
@@ -51,7 +51,7 @@ MalConfScan is a [Volatility](https://github.com/volatilityfoundation/volatility
 Modify the source code of Cuckoo Sandbox with the deploy-script and deploy Cuckoo Sandbox. If you want to know more detail, please check the [Wiki](https://github.com/JPCERTCC/MalConfScan-with-Cuckoo/wiki).
 
 ## How to use
-1. Setup your Cucukoo Sandbox and patch it with `malconfscan.patch`.
+1. Setup your Cuckoo Sandbox and patch it with `malconfscan.patch`.
 2. Submit your sample to the sandbox.
 3. Check the report.
 
